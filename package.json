@@ -1,0 +1,13 @@
+{
+  "name": "line-group-announcement",
+  "version": "1.0.0",
+  "private": true,
+  "description": "潔沛科技 LINE 群組公告系統",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

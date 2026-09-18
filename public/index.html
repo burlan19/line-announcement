@@ -1,0 +1,206 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>潔沛科技 LINE 群組公告系統</title>
+<style>
+  :root { --green:#2E7D32; --bg:#f4f6f5; --card:#ffffff; --border:#dde3e0; --text:#222; --muted:#888; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: "Microsoft JhengHei", "Segoe UI", sans-serif; background:var(--bg); color:var(--text); }
+  header { background:var(--green); color:#fff; padding:16px 24px; }
+  header h1 { margin:0; font-size:20px; }
+  main { max-width: 920px; margin: 0 auto; padding: 20px; display:flex; flex-direction:column; gap:20px; }
+  .card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:18px 20px; }
+  .card h2 { margin:0 0 12px; font-size:16px; color:var(--green); }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  label { font-size:13px; color:var(--muted); display:block; margin-bottom:4px; }
+  input[type=text], input[type=password], input[type=date], select {
+    padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:14px; min-width:120px;
+  }
+  button { padding:8px 16px; border:none; border-radius:6px; background:var(--green); color:#fff; font-size:14px; cursor:pointer; }
+  button.secondary { background:#607d67; }
+  button.danger { background:#c0392b; }
+  button:hover { opacity:.9; }
+  table { width:100%; border-collapse: collapse; font-size:14px; }
+  th, td { text-align:left; padding:8px 6px; border-bottom:1px solid var(--border); }
+  th { color:var(--muted); font-weight:normal; }
+  .muted { color:var(--muted); font-size:12px; }
+  .pill { display:inline-block; padding:2px 8px; border-radius:12px; font-size:12px; background:#e6f2e8; color:var(--green); }
+  .report-item { display:flex; gap:10px; padding:8px 0; border-bottom:1px solid var(--border); align-items:flex-start; }
+  .report-item img { width:64px; height:64px; object-fit:cover; border-radius:6px; cursor:pointer; }
+  .hint { font-size:12px; color:var(--muted); line-height:1.6; }
+  code { background:#eef1ef; padding:2px 6px; border-radius:4px; }
+</style>
+</head>
+<body>
+<header><h1>📢 潔沛科技 LINE 群組公告系統</h1></header>
+<main>
+
+  <div class="card">
+    <h2>① LINE Bot 設定</h2>
+    <p class="hint">把 LINE Developers Console 拿到的 Channel Access Token 和 Channel Secret 貼在這裡存起來（如果部署平台上已經用「環境變數」設定過，這裡可以不用填）。<br>
+    Webhook 網址請貼到 LINE Developers Console 的 Webhook URL 欄位：<code id="webhookUrl"></code></p>
+    <div class="row">
+      <div><label>Channel Access Token</label><input id="token" type="password" placeholder="貼上 Channel Access Token" style="min-width:320px"></div>
+      <div><label>Channel Secret</label><input id="secret" type="password" placeholder="貼上 Channel Secret" style="min-width:220px"></div>
+      <button onclick="saveConfig()">儲存設定</button>
+    </div>
+    <p class="muted" id="configStatus"></p>
+  </div>
+
+  <div class="card">
+    <h2>② 公告群組</h2>
+    <p class="hint">把 Bot 加入 LINE 群組後，在群組裡隨便發一句話，這裡就會出現該群組。選好之後按「設為公告群組」。</p>
+    <div class="row">
+      <select id="groupSelect" style="min-width:320px"></select>
+      <button onclick="selectGroup()">設為公告群組</button>
+    </div>
+    <p class="muted" id="groupStatus"></p>
+  </div>
+
+  <div class="card">
+    <h2>③ 今日工作分配</h2>
+    <div class="row">
+      <div><label>日期</label><input id="datePicker" type="date"></div>
+      <button class="secondary" onclick="loadState()">重新整理</button>
+      <button onclick="sendAnnouncement()">📤 發送今日公告到群組</button>
+    </div>
+    <table style="margin-top:14px">
+      <thead><tr><th>姓名</th><th>區域</th><th>時間</th><th></th></tr></thead>
+      <tbody id="assignmentRows"></tbody>
+    </table>
+    <div class="row" style="margin-top:12px">
+      <div><label>姓名</label><input id="newName" type="text" placeholder="王小明"></div>
+      <div><label>區域</label><input id="newArea" type="text" placeholder="A區"></div>
+      <div><label>時間</label><input id="newTime" type="text" placeholder="09:00"></div>
+      <button onclick="addAssignment()" style="margin-top:18px">新增</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>④ 確認與回報狀況</h2>
+    <p><strong>已確認收到：</strong> <span id="confirmedList"></span></p>
+    <div id="reportList"></div>
+  </div>
+
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+document.getElementById('webhookUrl').textContent = location.origin + '/webhook';
+$('datePicker').value = new Date().toISOString().slice(0,10);
+
+async function loadState() {
+  const date = $('datePicker').value;
+  const res = await fetch('/api/state?date=' + date);
+  const data = await res.json();
+  $('datePicker').value = data.date;
+
+  // 設定狀態
+  const c = data.config;
+  $('configStatus').textContent = c.hasToken && c.hasSecret
+    ? `目前設定：Token ${c.tokenFromEnv ? '(來自環境變數)' : '(來自網頁)'}、Secret ${c.secretFromEnv ? '(來自環境變數)' : '(來自網頁)'} 都已設定 ✅`
+    : `⚠️ 尚未設定完成：Token ${c.hasToken ? '✅' : '❌'}　Secret ${c.hasSecret ? '✅' : '❌'}`;
+
+  // 群組選單
+  const sel = $('groupSelect');
+  sel.innerHTML = '';
+  const groupIds = Object.keys(c.knownGroups || {});
+  if (!groupIds.length) {
+    sel.innerHTML = '<option value="">（尚未偵測到任何群組，先把 Bot 加入群組並發一句話）</option>';
+  } else {
+    for (const gid of groupIds) {
+      const opt = document.createElement('option');
+      opt.value = gid;
+      opt.textContent = gid + (gid === c.groupId ? '　★目前公告群組' : '') + '　(最後出現: ' + new Date(c.knownGroups[gid].lastSeen).toLocaleString('zh-TW') + ')';
+      sel.appendChild(opt);
+    }
+    sel.value = c.groupId || groupIds[0];
+  }
+  $('groupStatus').textContent = c.groupId ? ('目前公告群組：' + c.groupId) : '尚未選擇公告群組';
+
+  // 分配表格
+  const day = data.day;
+  const rows = $('assignmentRows');
+  rows.innerHTML = '';
+  for (const a of day.assignments) {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `<td>${escapeHtml(a.name)}</td><td>${escapeHtml(a.area)}</td><td>${escapeHtml(a.time)}</td>
+      <td><button class="danger" onclick="deleteAssignment('${a.id}')">刪除</button></td>`;
+    rows.appendChild(tr);
+  }
+
+  // 確認名單
+  const confirmedNames = Object.values(day.confirmed).map(c => c.displayName);
+  $('confirmedList').textContent = confirmedNames.length ? confirmedNames.join('、') : '（尚無）';
+
+  // 回報列表
+  const list = $('reportList');
+  list.innerHTML = '';
+  if (!day.reports.length) {
+    list.innerHTML = '<p class="muted">今天還沒有人回報進度。</p>';
+  }
+  for (const r of day.reports.slice().reverse()) {
+    const div = document.createElement('div');
+    div.className = 'report-item';
+    const time = new Date(r.createdAt).toLocaleString('zh-TW');
+    const tag = r.matchedName ? `<span class="pill">${escapeHtml(r.matchedName)}</span>` : '';
+    if (r.type === 'image') {
+      div.innerHTML = `<img src="/uploads/${r.filename}" onclick="window.open('/uploads/${r.filename}')">
+        <div><strong>${escapeHtml(r.displayName)}</strong> ${tag}<br><span class="muted">${time}</span><br>📷 上傳了照片</div>`;
+    } else {
+      div.innerHTML = `<div><strong>${escapeHtml(r.displayName)}</strong> ${tag}<br><span class="muted">${time}</span><br>${escapeHtml(r.content)}</div>`;
+    }
+    list.appendChild(div);
+  }
+}
+
+function escapeHtml(s) { return String(s ?? '').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m])); }
+
+async function saveConfig() {
+  const channelAccessToken = $('token').value.trim();
+  const channelSecret = $('secret').value.trim();
+  await fetch('/api/config', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ channelAccessToken, channelSecret }) });
+  $('token').value=''; $('secret').value='';
+  loadState();
+}
+
+async function selectGroup() {
+  const groupId = $('groupSelect').value;
+  await fetch('/api/select-group', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ groupId }) });
+  loadState();
+}
+
+async function addAssignment() {
+  const name = $('newName').value.trim();
+  if (!name) { alert('請輸入姓名'); return; }
+  const area = $('newArea').value.trim();
+  const time = $('newTime').value.trim();
+  const date = $('datePicker').value;
+  await fetch('/api/assignments', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name, area, time, date }) });
+  $('newName').value=''; $('newArea').value=''; $('newTime').value='';
+  loadState();
+}
+
+async function deleteAssignment(id) {
+  const date = $('datePicker').value;
+  await fetch('/api/assignments/' + id + '?date=' + date, { method:'DELETE' });
+  loadState();
+}
+
+async function sendAnnouncement() {
+  const date = $('datePicker').value;
+  const res = await fetch('/api/send-announcement', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ date }) });
+  const data = await res.json();
+  if (!res.ok) { alert('發送失敗：' + data.error); return; }
+  alert('已發送公告到群組！');
+  loadState();
+}
+
+$('datePicker').addEventListener('change', loadState);
+loadState();
+setInterval(loadState, 5000);
+</script>
+</body>
+</html>
