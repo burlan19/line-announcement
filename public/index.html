@@ -7,29 +7,29 @@
 <style>
   :root { --green:#2E7D32; --bg:#f4f6f5; --card:#ffffff; --border:#dde3e0; --text:#222; --muted:#888; }
   * { box-sizing: border-box; }
-  body { margin:0; font-family: "Microsoft JhengHei", "Segoe UI", sans-serif; background:var(--bg); color:var(--text); }
+  body { margin:0; font-family: "Microsoft JhengHei", "Segoe UI", sans-serif; background:var(--bg); color:var(--text); font-size:18px; }
   header { background:var(--green); color:#fff; padding:16px 24px; }
-  header h1 { margin:0; font-size:20px; }
-  main { max-width: 920px; margin: 0 auto; padding: 20px; display:flex; flex-direction:column; gap:20px; }
+  header h1 { margin:0; font-size:24px; }
+  main { max-width: 960px; margin: 0 auto; padding: 20px; display:flex; flex-direction:column; gap:20px; }
   .card { background:var(--card); border:1px solid var(--border); border-radius:10px; padding:18px 20px; }
-  .card h2 { margin:0 0 12px; font-size:16px; color:var(--green); }
+  .card h2 { margin:0 0 12px; font-size:20px; color:var(--green); }
   .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
-  label { font-size:13px; color:var(--muted); display:block; margin-bottom:4px; }
+  label { font-size:15px; color:var(--muted); display:block; margin-bottom:4px; }
   input[type=text], input[type=password], input[type=date], select {
-    padding:8px 10px; border:1px solid var(--border); border-radius:6px; font-size:14px; min-width:120px;
+    padding:10px 12px; border:1px solid var(--border); border-radius:6px; font-size:17px; min-width:120px;
   }
-  button { padding:8px 16px; border:none; border-radius:6px; background:var(--green); color:#fff; font-size:14px; cursor:pointer; }
+  button { padding:10px 18px; border:none; border-radius:6px; background:var(--green); color:#fff; font-size:17px; cursor:pointer; }
   button.secondary { background:#607d67; }
   button.danger { background:#c0392b; }
   button:hover { opacity:.9; }
-  table { width:100%; border-collapse: collapse; font-size:14px; }
-  th, td { text-align:left; padding:8px 6px; border-bottom:1px solid var(--border); }
+  table { width:100%; border-collapse: collapse; font-size:17px; }
+  th, td { text-align:left; padding:10px 8px; border-bottom:1px solid var(--border); }
   th { color:var(--muted); font-weight:normal; }
-  .muted { color:var(--muted); font-size:12px; }
-  .pill { display:inline-block; padding:2px 8px; border-radius:12px; font-size:12px; background:#e6f2e8; color:var(--green); }
-  .report-item { display:flex; gap:10px; padding:8px 0; border-bottom:1px solid var(--border); align-items:flex-start; }
-  .report-item img { width:64px; height:64px; object-fit:cover; border-radius:6px; cursor:pointer; }
-  .hint { font-size:12px; color:var(--muted); line-height:1.6; }
+  .muted { color:var(--muted); font-size:14px; }
+  .pill { display:inline-block; padding:3px 10px; border-radius:12px; font-size:14px; background:#e6f2e8; color:var(--green); }
+  .report-item { display:flex; gap:10px; padding:10px 0; border-bottom:1px solid var(--border); align-items:flex-start; }
+  .report-item img { width:72px; height:72px; object-fit:cover; border-radius:6px; cursor:pointer; }
+  .hint { font-size:14px; color:var(--muted); line-height:1.6; }
   code { background:#eef1ef; padding:2px 6px; border-radius:4px; }
 </style>
 </head>
@@ -63,17 +63,21 @@
     <h2>③ 今日工作分配</h2>
     <div class="row">
       <div><label>日期</label><input id="datePicker" type="date"></div>
+      <div><label>發送時間</label><span id="sentInfo" class="muted" style="display:inline-block; padding-top:10px;">-</span></div>
       <button class="secondary" onclick="loadState()">重新整理</button>
       <button onclick="sendAnnouncement()">📤 發送今日公告到群組</button>
     </div>
-    <table style="margin-top:14px">
-      <thead><tr><th>姓名</th><th>區域</th><th>時間</th><th></th></tr></thead>
+    <div style="overflow-x:auto; margin-top:14px">
+    <table style="min-width:640px">
+      <thead><tr><th style="white-space:nowrap">姓名</th><th style="white-space:nowrap">時間</th><th style="white-space:nowrap">作業區域</th><th>作業內容</th><th></th></tr></thead>
       <tbody id="assignmentRows"></tbody>
     </table>
+    </div>
     <div class="row" style="margin-top:12px">
       <div><label>姓名</label><input id="newName" type="text" placeholder="王小明"></div>
-      <div><label>區域</label><input id="newArea" type="text" placeholder="A區"></div>
       <div><label>時間</label><input id="newTime" type="text" placeholder="09:00"></div>
+      <div><label>作業區域</label><input id="newArea" type="text" placeholder="A區"></div>
+      <div><label>作業內容</label><input id="newContent" type="text" placeholder="清洗機台並記錄溫度" style="min-width:220px"></div>
       <button onclick="addAssignment()" style="margin-top:18px">新增</button>
     </div>
   </div>
@@ -120,14 +124,17 @@ async function loadState() {
   }
   $('groupStatus').textContent = c.groupId ? ('目前公告群組：' + c.groupId) : '尚未選擇公告群組';
 
-  // 分配表格
+  // 發送時間
   const day = data.day;
+  $('sentInfo').textContent = day.announcementSentAt ? new Date(day.announcementSentAt).toLocaleString('zh-TW') : '尚未發送';
+
+  // 分配表格
   const rows = $('assignmentRows');
   rows.innerHTML = '';
   for (const a of day.assignments) {
     const tr = document.createElement('tr');
-    tr.innerHTML = `<td>${escapeHtml(a.name)}</td><td>${escapeHtml(a.area)}</td><td>${escapeHtml(a.time)}</td>
-      <td><button class="danger" onclick="deleteAssignment('${a.id}')">刪除</button></td>`;
+    tr.innerHTML = `<td style="white-space:nowrap">${escapeHtml(a.name)}</td><td style="white-space:nowrap">${escapeHtml(a.time)}</td><td style="white-space:nowrap">${escapeHtml(a.area)}</td><td>${escapeHtml(a.content)}</td>
+      <td><button class="danger" style="white-space:nowrap" onclick="deleteAssignment('${a.id}')">刪除</button></td>`;
     rows.appendChild(tr);
   }
 
@@ -175,11 +182,12 @@ async function selectGroup() {
 async function addAssignment() {
   const name = $('newName').value.trim();
   if (!name) { alert('請輸入姓名'); return; }
-  const area = $('newArea').value.trim();
   const time = $('newTime').value.trim();
+  const area = $('newArea').value.trim();
+  const content = $('newContent').value.trim();
   const date = $('datePicker').value;
-  await fetch('/api/assignments', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name, area, time, date }) });
-  $('newName').value=''; $('newArea').value=''; $('newTime').value='';
+  await fetch('/api/assignments', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ name, time, area, content, date }) });
+  $('newName').value=''; $('newTime').value=''; $('newArea').value=''; $('newContent').value='';
   loadState();
 }
 

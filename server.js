@@ -166,14 +166,24 @@ async function resolveDisplayName(source) {
 // ---------- 公告訊息（Flex Message） ----------
 
 function buildAnnouncementFlex(date, assignments) {
-  const rows = assignments.map((a) => ({
-    type: 'box', layout: 'horizontal', spacing: 'sm',
-    contents: [
-      { type: 'text', text: a.name, size: 'sm', color: '#111111', flex: 3, wrap: true },
-      { type: 'text', text: a.area || '-', size: 'sm', color: '#555555', flex: 3, wrap: true },
-      { type: 'text', text: a.time || '-', size: 'sm', color: '#555555', flex: 2, align: 'end' },
-    ],
-  }));
+  const rows = [];
+  assignments.forEach((a, i) => {
+    rows.push({
+      type: 'box', layout: 'vertical', spacing: 'xs',
+      contents: [
+        {
+          type: 'box', layout: 'horizontal', spacing: 'sm',
+          contents: [
+            { type: 'text', text: a.name, weight: 'bold', size: 'md', color: '#111111', flex: 3, wrap: true },
+            { type: 'text', text: a.time || '-', size: 'sm', color: '#555555', flex: 2, align: 'center' },
+            { type: 'text', text: a.area || '-', size: 'sm', color: '#2E7D32', flex: 3, align: 'end', wrap: true },
+          ],
+        },
+        ...(a.content ? [{ type: 'text', text: a.content, size: 'sm', color: '#555555', wrap: true }] : []),
+      ],
+    });
+    if (i < assignments.length - 1) rows.push({ type: 'separator' });
+  });
   return {
     type: 'flex',
     altText: `📢 ${date} 今日工作分配`,
@@ -198,7 +208,7 @@ function buildAnnouncementFlex(date, assignments) {
         type: 'box', layout: 'vertical',
         contents: [{
           type: 'button', style: 'primary', color: '#2E7D32',
-          action: { type: 'postback', label: '✅ 確認收到', data: `action=confirm&date=${date}`, displayText: '確認收到今日公告' },
+          action: { type: 'postback', label: '✅ 確認收到', data: `action=confirm&date=${date}` },
         }],
       },
     },
@@ -209,13 +219,17 @@ function buildStatusText(date) {
   const day = ensureDay(date);
   if (!day.assignments.length) return `${date} 目前尚無分配的工作項目。`;
   const lines = day.assignments.map((a) => {
-    const anyConfirmed = Object.keys(day.confirmed).length > 0;
-    return `${a.name} → ${a.area || '-'} (${a.time || '-'})`;
+    const base = `${a.name} ${a.time || '-'} ${a.area || '-'}`;
+    return a.content ? `${base}｜${a.content}` : base;
   });
   const confirmedNames = Object.values(day.confirmed).map((c) => c.displayName);
   const reportCount = day.reports.length;
+  const sentInfo = day.announcementSentAt
+    ? `📤 發送時間：${new Date(day.announcementSentAt).toLocaleString('zh-TW', { timeZone: 'Asia/Taipei' })}`
+    : '📤 今天尚未發送公告';
   return [
     `📋 ${date} 工作分配狀況`,
+    sentInfo,
     ...lines,
     '',
     `✅ 已確認收到（${confirmedNames.length}人）：${confirmedNames.join('、') || '尚無'}`,
@@ -229,7 +243,7 @@ async function handleTextCommand(text, event, date) {
   const trimmed = text.trim();
   if (trimmed === '/說明' || trimmed.toLowerCase() === '/help') {
     return ['📖 使用說明',
-      '/指派 姓名 區域 時間 → 新增一筆工作分配（可多行，一行一筆）',
+      '/指派 姓名 時間 區域 作業內容 → 新增一筆工作分配（可多行，一行一筆；作業內容可以有空格）',
       '/公告 → 立即發送今天的工作分配公告',
       '/進度 或 /查詢 → 查看今天的確認與回報狀況',
       '完成工作後，直接在群組留言文字或上傳照片，就會自動記錄成進度回報。',
@@ -244,13 +258,13 @@ async function handleTextCommand(text, event, date) {
     for (const line of lines) {
       const tokens = line.split(/\s+/).filter(Boolean);
       if (tokens.length < 2) { skipped.push(line); continue; }
-      const [name, area, time] = tokens;
-      const item = { id: newId(), name, area: area || '', time: time || '', createdAt: new Date().toISOString() };
+      const [name, time, area, ...rest] = tokens;
+      const item = { id: newId(), name, time: time || '', area: area || '', content: rest.join(' '), createdAt: new Date().toISOString() };
       day.assignments.push(item);
-      added.push(`${item.name} ${item.area} ${item.time}`.trim());
+      added.push(`${item.name} ${item.time} ${item.area} ${item.content}`.trim());
     }
     persist();
-    let reply = added.length ? `✅ 已新增 ${added.length} 筆分配：\n${added.join('\n')}` : '⚠️ 沒有新增任何項目，格式請用「姓名 區域 時間」';
+    let reply = added.length ? `✅ 已新增 ${added.length} 筆分配：\n${added.join('\n')}` : '⚠️ 沒有新增任何項目，格式請用「姓名 時間 區域 作業內容」';
     if (skipped.length) reply += `\n\n⚠️ 以下格式無法辨識，已略過：\n${skipped.join('\n')}`;
     return reply;
   }
@@ -301,8 +315,12 @@ async function handleEvent(event) {
     if (params.get('action') === 'confirm') {
       const d = params.get('date') || date;
       const day = ensureDay(d);
+      if (day.confirmed[source.userId]) return; // 已經確認過，忽略重複點擊，不再回覆
+      // 中間沒有await，同一個人幾乎同時點兩下也不會兩邊都通過這個檢查
+      day.confirmed[source.userId] = { displayName: '（查詢中）', confirmedAt: new Date().toISOString() };
+      persist();
       const displayName = await resolveDisplayName(source);
-      day.confirmed[source.userId] = { displayName, confirmedAt: new Date().toISOString() };
+      day.confirmed[source.userId].displayName = displayName;
       persist();
       if (event.replyToken) {
         await lineReply(event.replyToken, [{ type: 'text', text: `✅ ${displayName} 已確認收到今日公告` }]);
@@ -439,7 +457,14 @@ const server = http.createServer(async (req, res) => {
       const body = safeJSON(raw.toString('utf8') || '{}');
       const date = body.date || todayStr();
       const day = ensureDay(date);
-      const item = { id: newId(), name: (body.name || '').trim(), area: (body.area || '').trim(), time: (body.time || '').trim(), createdAt: new Date().toISOString() };
+      const item = {
+        id: newId(),
+        name: (body.name || '').trim(),
+        time: (body.time || '').trim(),
+        area: (body.area || '').trim(),
+        content: (body.content || '').trim(),
+        createdAt: new Date().toISOString(),
+      };
       if (!item.name) { sendJSON(res, 400, { error: '姓名不可空白' }); return; }
       day.assignments.push(item);
       persist();
